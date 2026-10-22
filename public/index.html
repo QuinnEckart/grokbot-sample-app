@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Inference Chat</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="app">
+      <header>
+        <h1>Inference Chat</h1>
+        <p class="subtitle">
+          Minimal demo for DigitalOcean Serverless Inference (OpenAI-compatible).
+        </p>
+      </header>
+      <main id="log" class="log" aria-live="polite"></main>
+      <form id="form" class="composer" autocomplete="off">
+        <label class="sr-only" for="input">Message</label>
+        <textarea
+          id="input"
+          rows="2"
+          placeholder="Ask something…"
+          required
+        ></textarea>
+        <button type="submit" id="send">Send</button>
+      </form>
+      <p id="status" class="status" role="status"></p>
+    </div>
+    <script src="/app.js" type="module"></script>
+  </body>
+</html>
