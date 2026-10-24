@@ -1,4 +1,4 @@
-name: grokbot-sample-app
+name: march-madness-bracket
 region: nyc
 services:
   - name: web
@@ -8,13 +8,21 @@ services:
     http_port: 8080
     source_dir: /
     run_command: npm start
-    git:
+    github:
       repo_clone_url: https://github.com/QuinnEckart/grokbot-sample-app.git
-      branch: main
+      branch: march-madness
+      deploy_on_push: true
     health_check:
       http_path: /healthz
     envs:
+      - key: INFERENCE_BASE_URL
+        value: https://inference.do-ai.run/v1
+        scope: RUN_TIME
+        type: GENERAL
+      - key: INFERENCE_MODEL
+        value: openai-gpt-oss-20b
+        scope: RUN_TIME
+        type: GENERAL
       - key: MODEL_ACCESS_KEY
-        value: REPLACE_WITH_YOUR_MODEL_ACCESS_KEY
         scope: RUN_TIME
         type: SECRET

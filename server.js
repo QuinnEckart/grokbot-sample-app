@@ -1,7 +1,7 @@
-import http from "node:http";
-import fs from "node:fs";
+import express from "express";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { summarizeBracketForChat } from "./lib/bracket.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.join(__dirname, "public");
@@ -15,69 +15,16 @@ const INFERENCE_BASE_URL = (
   "https://inference.do-ai.run/v1"
 ).replace(/\/$/, "");
 
-const MAX_BODY_BYTES = 32 * 1024;
-const MAX_HISTORY_MESSAGES = 20;
-const MAX_COMPLETION_TOKENS = 512;
+const MAX_BODY_BYTES = 64 * 1024;
+const MAX_HISTORY_MESSAGES = 12;
+const MAX_COMPLETION_TOKENS = 768;
 
-const MIME = {
-  ".html": "text/html; charset=utf-8",
-  ".css": "text/css; charset=utf-8",
-  ".js": "text/javascript; charset=utf-8",
-  ".svg": "image/svg+xml",
-  ".ico": "image/x-icon",
-};
-
-function sendJson(res, status, body) {
-  const payload = JSON.stringify(body);
-  res.writeHead(status, {
-    "Content-Type": "application/json; charset=utf-8",
-    "Content-Length": Buffer.byteLength(payload),
-  });
-  res.end(payload);
-}
-
-function readBody(req, limit) {
-  return new Promise((resolve, reject) => {
-    const chunks = [];
-    let size = 0;
-    req.on("data", (chunk) => {
-      size += chunk.length;
-      if (size > limit) {
-        reject(new Error("BODY_TOO_LARGE"));
-        req.destroy();
-        return;
-      }
-      chunks.push(chunk);
-    });
-    req.on("end", () => resolve(Buffer.concat(chunks)));
-    req.on("error", reject);
-  });
-}
-
-function sanitizeMessages(raw) {
-  if (!Array.isArray(raw)) {
-    throw new Error("messages must be an array");
-  }
-  const trimmed = raw.slice(-MAX_HISTORY_MESSAGES);
-  return trimmed.map((m) => {
-    if (!m || typeof m !== "object") {
-      throw new Error("invalid message");
-    }
-    const role = m.role;
-    const content = m.content;
-    if (
-      role !== "user" &&
-      role !== "assistant" &&
-      role !== "system"
-    ) {
-      throw new Error("invalid message role");
-    }
-    if (typeof content !== "string" || !content.trim()) {
-      throw new Error("message content must be a non-empty string");
-    }
-    return { role, content: content.slice(0, 16_000) };
-  });
-}
+const SYSTEM_PROMPT = `You are a friendly March Madness bracket advisor in a personal side chat.
+Help the user think through matchups, potential upsets, and how their picks fit together.
+Be concise, enthusiastic about college basketball, and practical — no need to simulate every game in detail unless asked.
+When you reference teams, use the names from their bracket.
+If their bracket is incomplete, encourage them to finish key regions or the Final Four.
+Do not claim to know real-world injury news or insider info; stick to seeds, matchups, and general tournament trends.`;
 
 function upstreamErrorMessage(status, bodyText) {
   try {
@@ -96,13 +43,15 @@ function upstreamErrorMessage(status, bodyText) {
   if (status === 401 || status === 403) {
     return "Authentication failed. Check that MODEL_ACCESS_KEY is valid and scoped to this model.";
   }
-  if (status === 402 || status === 429) {
-    return "Inference request was rejected (billing or rate limit). Check your Inference balance and quotas.";
+  if (status === 402) {
+    return "Inference request was rejected (billing). Check your Inference balance.";
+  }
+  if (status === 429) {
+    return "Rate limited by inference API. Please wait a moment and try again.";
   }
   return `Inference upstream returned HTTP ${status}.`;
 }
 
-/** Prefer visible assistant content; reasoning models may leave content empty. */
 function extractAssistantReply(message) {
   if (!message || typeof message !== "object") {
     return null;
@@ -121,55 +70,82 @@ function extractAssistantReply(message) {
   return null;
 }
 
-async function handleChat(req, res) {
-  if (!MODEL_ACCESS_KEY) {
-    sendJson(res, 503, {
-      error:
-        "Chat is unavailable: set MODEL_ACCESS_KEY on the server (see README).",
-    });
-    return;
+function sanitizeMessages(raw) {
+  if (!Array.isArray(raw)) {
+    throw new Error("messages must be an array");
   }
-
-  let bodyBuf;
-  try {
-    bodyBuf = await readBody(req, MAX_BODY_BYTES);
-  } catch (err) {
-    if (err.message === "BODY_TOO_LARGE") {
-      sendJson(res, 413, { error: "Request body too large." });
-      return;
+  const trimmed = raw.slice(-MAX_HISTORY_MESSAGES);
+  return trimmed.map((m) => {
+    if (!m || typeof m !== "object") {
+      throw new Error("invalid message");
     }
-    sendJson(res, 400, { error: "Could not read request body." });
-    return;
-  }
+    const role = m.role;
+    const content = m.content;
+    if (role !== "user" && role !== "assistant" && role !== "system") {
+      throw new Error("invalid message role");
+    }
+    if (typeof content !== "string" || !content.trim()) {
+      throw new Error("message content must be a non-empty string");
+    }
+    return { role, content: content.slice(0, 16_000) };
+  });
+}
 
-  let payload;
-  try {
-    payload = JSON.parse(bodyBuf.toString("utf8"));
-  } catch {
-    sendJson(res, 400, { error: "Invalid JSON body." });
+function bracketContextMessage(bracket) {
+  if (!bracket || typeof bracket !== "object") {
+    return "User bracket: (no bracket data provided)";
+  }
+  const teams = Array.isArray(bracket.teams) ? bracket.teams : [];
+  const picks =
+    bracket.picks && typeof bracket.picks === "object" ? bracket.picks : {};
+  const summary = summarizeBracketForChat(teams, picks);
+  const fieldNote =
+    typeof bracket.fieldNote === "string" ? bracket.fieldNote : "";
+  return `Current bracket state:\n${summary}${fieldNote ? `\nField note: ${fieldNote}` : ""}`;
+}
+
+const app = express();
+app.use(express.json({ limit: MAX_BODY_BYTES }));
+app.use("/lib", express.static(path.join(__dirname, "lib")));
+app.use(express.static(PUBLIC_DIR));
+
+app.get("/healthz", (_req, res) => {
+  res.status(200).json({ ok: true });
+});
+
+app.post("/api/chat", async (req, res) => {
+  if (!MODEL_ACCESS_KEY) {
+    res.status(503).json({ error: "Inference not configured" });
     return;
   }
 
   let messages;
   try {
-    messages = sanitizeMessages(payload.messages);
+    messages = sanitizeMessages(req.body?.messages);
   } catch (err) {
-    sendJson(res, 400, { error: err.message });
+    res.status(400).json({ error: err.message });
     return;
   }
 
   if (messages.length === 0) {
-    sendJson(res, 400, { error: "messages must not be empty." });
+    res.status(400).json({ error: "messages must not be empty." });
     return;
   }
+
+  const context = bracketContextMessage(req.body?.bracket);
+  const upstreamMessages = [
+    { role: "system", content: SYSTEM_PROMPT },
+    { role: "system", content: context },
+    ...messages.filter((m) => m.role !== "system"),
+  ];
 
   const upstreamUrl = `${INFERENCE_BASE_URL}/chat/completions`;
   const upstreamBody = {
     model: INFERENCE_MODEL,
-    messages,
+    messages: upstreamMessages,
     max_completion_tokens: MAX_COMPLETION_TOKENS,
     max_tokens: MAX_COMPLETION_TOKENS,
-    temperature: 0.7,
+    temperature: 0.75,
   };
 
   let upstreamRes;
@@ -183,7 +159,7 @@ async function handleChat(req, res) {
       body: JSON.stringify(upstreamBody),
     });
   } catch {
-    sendJson(res, 502, {
+    res.status(502).json({
       error: "Could not reach the inference API. Try again later.",
     });
     return;
@@ -191,7 +167,9 @@ async function handleChat(req, res) {
 
   const text = await upstreamRes.text();
   if (!upstreamRes.ok) {
-    sendJson(res, upstreamRes.status >= 500 ? 502 : upstreamRes.status, {
+    const status =
+      upstreamRes.status >= 500 ? 502 : upstreamRes.status;
+    res.status(status).json({
       error: upstreamErrorMessage(upstreamRes.status, text),
     });
     return;
@@ -201,67 +179,23 @@ async function handleChat(req, res) {
   try {
     data = JSON.parse(text);
   } catch {
-    sendJson(res, 502, { error: "Invalid response from inference API." });
+    res.status(502).json({ error: "Invalid response from inference API." });
     return;
   }
 
   const reply = extractAssistantReply(data?.choices?.[0]?.message);
   if (reply === null) {
-    sendJson(res, 502, { error: "Inference API returned no message content." });
+    res.status(502).json({ error: "Inference API returned no message content." });
     return;
   }
 
-  sendJson(res, 200, {
+  res.json({
     message: { role: "assistant", content: reply },
     usage: data.usage ?? null,
     model: data.model ?? INFERENCE_MODEL,
   });
-}
-
-function serveStatic(req, res, urlPath) {
-  let rel = urlPath === "/" ? "/index.html" : urlPath;
-  rel = path.normalize(rel).replace(/^(\.\.(\/|\\|$))+/, "");
-  const filePath = path.join(PUBLIC_DIR, rel);
-  if (!filePath.startsWith(PUBLIC_DIR)) {
-    res.writeHead(403);
-    res.end("Forbidden");
-    return;
-  }
-  fs.readFile(filePath, (err, data) => {
-    if (err) {
-      res.writeHead(404);
-      res.end("Not found");
-      return;
-    }
-    const ext = path.extname(filePath);
-    res.writeHead(200, { "Content-Type": MIME[ext] || "application/octet-stream" });
-    res.end(data);
-  });
-}
-
-const server = http.createServer(async (req, res) => {
-  const urlPath = (req.url || "/").split("?")[0];
-
-  if (req.method === "GET" && urlPath === "/healthz") {
-    res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" });
-    res.end("ok");
-    return;
-  }
-
-  if (req.method === "POST" && urlPath === "/api/chat") {
-    await handleChat(req, res);
-    return;
-  }
-
-  if (req.method === "GET") {
-    serveStatic(req, res, urlPath);
-    return;
-  }
-
-  res.writeHead(405);
-  res.end("Method not allowed");
 });
 
-server.listen(PORT, () => {
-  console.log(`grokbot-sample-app listening on :${PORT}`);
+app.listen(PORT, () => {
+  console.log(`march-madness-bracket listening on :${PORT}`);
 });

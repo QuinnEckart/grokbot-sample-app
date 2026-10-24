@@ -3,30 +3,81 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Inference Chat</title>
+    <title>March Madness Bracket</title>
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
-    <div class="app">
-      <header>
-        <h1>Inference Chat</h1>
-        <p class="subtitle">
-          Minimal demo for DigitalOcean Serverless Inference (OpenAI-compatible).
-        </p>
+    <div id="champion-banner" class="champion-banner hidden" role="status"></div>
+    <div class="layout">
+      <header class="topbar">
+        <div class="brand">
+          <span class="ball" aria-hidden="true">🏀</span>
+          <div>
+            <h1>March Madness Bracket</h1>
+            <p class="tagline">Pick winners · chat with your bracket advisor</p>
+          </div>
+        </div>
+        <div class="toolbar">
+          <button type="button" id="btn-chalk" class="btn secondary">Auto-fill (chalk)</button>
+          <button type="button" id="btn-random" class="btn secondary">Randomize upsets</button>
+          <button type="button" id="btn-reset" class="btn danger">Reset</button>
+          <button type="button" id="btn-teams" class="btn">Edit teams</button>
+          <button
+            type="button"
+            id="btn-chat-toggle"
+            class="btn primary mobile-only"
+            aria-expanded="false"
+            aria-controls="chat-panel"
+          >
+            Chat
+          </button>
+        </div>
       </header>
-      <main id="log" class="log" aria-live="polite"></main>
-      <form id="form" class="composer" autocomplete="off">
-        <label class="sr-only" for="input">Message</label>
-        <textarea
-          id="input"
-          rows="2"
-          placeholder="Ask something…"
-          required
-        ></textarea>
-        <button type="submit" id="send">Send</button>
-      </form>
-      <p id="status" class="status" role="status"></p>
+
+      <p id="field-note" class="field-note"></p>
+
+      <main class="main">
+        <section class="bracket-section" aria-label="Tournament bracket">
+          <div id="bracket-root" class="bracket-root"></div>
+        </section>
+
+        <aside id="chat-panel" class="chat-panel" aria-label="Bracket advisor chat">
+          <div class="chat-header">
+            <h2>Bracket advisor</h2>
+            <button type="button" id="btn-chat-close" class="icon-btn mobile-only" aria-label="Close chat">
+              ×
+            </button>
+          </div>
+          <p id="inference-notice" class="inference-notice hidden"></p>
+          <div id="chat-log" class="chat-log" aria-live="polite"></div>
+          <form id="chat-form" class="chat-form" autocomplete="off">
+            <label class="sr-only" for="chat-input">Message</label>
+            <textarea
+              id="chat-input"
+              rows="2"
+              placeholder="Ask about upsets, your champion, or a region…"
+            ></textarea>
+            <button type="submit" id="chat-send" class="btn primary">Send</button>
+          </form>
+          <p id="chat-status" class="chat-status" role="status"></p>
+        </aside>
+      </main>
     </div>
-    <script src="/app.js" type="module"></script>
+
+    <dialog id="teams-dialog" class="teams-dialog">
+      <form method="dialog" id="teams-form">
+        <header>
+          <h2>Edit team names</h2>
+          <p>Paste in a real tournament field or rename the example teams.</p>
+        </header>
+        <div id="teams-editor" class="teams-editor"></div>
+        <footer class="dialog-actions">
+          <button type="button" id="teams-cancel" class="btn secondary">Cancel</button>
+          <button type="submit" value="save" class="btn primary">Save teams</button>
+        </footer>
+      </form>
+    </dialog>
+
+    <script type="module" src="/app.js"></script>
   </body>
 </html>

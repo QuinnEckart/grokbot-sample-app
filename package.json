@@ -1,13 +1,17 @@
 {
-  "name": "grokbot-sample-app",
+  "name": "march-madness-bracket",
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Minimal chat UI proxy for DigitalOcean Serverless Inference (Grok Bot plugin sample)",
+  "description": "NCAA-style March Madness bracket picker with a bracket-advisor chat assistant",
   "engines": {
     "node": ">=20"
   },
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "test": "node test/bracket.test.js"
+  },
+  "dependencies": {
+    "express": "^4.21.2"
   }
 }
