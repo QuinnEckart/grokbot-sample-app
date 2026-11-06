@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Minimal chat UI proxy for DigitalOcean Serverless Inference (Grok Bot plugin sample)",
+  "description": "March Madness bracket picker with DigitalOcean Serverless Inference chat (OpenAI-compatible)",
   "engines": {
     "node": ">=20"
   },
