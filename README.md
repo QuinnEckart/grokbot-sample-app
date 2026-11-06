@@ -1,50 +1,40 @@
-# grokbot-sample-app
+# grokbot-sample-app — March Madness bracket + inference chat
 
-A minimal Node.js chat UI that proxies conversation turns to [DigitalOcean Serverless Inference](https://docs.digitalocean.com/products/inference/how-to/use-serverless-inference/) using the OpenAI-compatible [Chat Completions API](https://docs.digitalocean.com/reference/api/reference/serverless-inference/).
+A responsive **64-team bracket** (demo field — the real **2027 NCAA bracket is not announced yet**) with **local persistence**, **export/import JSON**, **reset confirmation**, and advancement rules that **clear downstream picks** when an earlier winner changes. The **bracket assistant** chat proxies to [DigitalOcean Serverless Inference](https://docs.digitalocean.com/products/inference/how-to/use-serverless-inference/) using the OpenAI-compatible `POST /v1/chat/completions` API. The server sends **bounded** system context summarizing the user’s actual picks (no fabricated stats or odds).
 
-This repository is an end-to-end smoke test for the **DigitalOcean Grok Bot** Cursor plugin: run locally, deploy to App Platform, and chat against inference with a model access key kept server-side.
+**Bracket editing works without any chat API key.** Until `MODEL_ACCESS_KEY` is set on the server, the UI shows that chat is unconfigured and `/api/chat` returns HTTP **503** with a clear message.
 
-## Default model
+## Stack
 
-| Setting | Value |
-| --- | --- |
-| `INFERENCE_MODEL` (default) | `openai-gpt-oss-20b` |
-| Why | Small open-weight model with **serverless** inference on DigitalOcean-hosted infrastructure (see [Supported Models](https://docs.digitalocean.com/products/inference/details/models/)). |
+- **Node.js 20+** (built-in `fetch`), zero npm runtime dependencies
+- Static `public/` HTML/CSS/JS; bracket logic in `lib/bracket.js`
+- **Docker** image: `Dockerfile` (Alpine, `npm ci --omit=dev`)
 
-Override with `INFERENCE_MODEL` if your model access key is scoped to other models.
+## Environment variables (deployment)
 
-## Inference endpoint
+Set these in the **DigitalOcean App Platform** component environment (or Docker / shell). **Do not** commit secrets.
 
-Base URL: `https://inference.do-ai.run`
-
-Chat completions: `POST https://inference.do-ai.run/v1/chat/completions`
-
-Authenticate with `Authorization: Bearer <MODEL_ACCESS_KEY>` ([model access keys](https://docs.digitalocean.com/products/inference/how-to/manage-model-access-keys/)).
-
-## Environment variables
-
-| Variable | Required | Default | Description |
+| Variable | Required for chat | Default | Description |
 | --- | --- | --- | --- |
-| `MODEL_ACCESS_KEY` | Yes (for chat) | — | Secret model access key. Never exposed to the browser. |
-| `INFERENCE_MODEL` | No | `openai-gpt-oss-20b` | Model ID from the catalog. |
-| `INFERENCE_BASE_URL` | No | `https://inference.do-ai.run/v1` | Override API base (no trailing slash required). |
+| `MODEL_ACCESS_KEY` | Yes | — | Server-side model access key. Never exposed to the browser or logs. |
+| `INFERENCE_MODEL` | No | `openai-gpt-oss-20b` | Model id from the [catalog](https://docs.digitalocean.com/products/inference/details/models/). |
+| `INFERENCE_BASE_URL` | No | `https://inference.do-ai.run/v1` | OpenAI-compatible base URL (no trailing slash required). |
 | `PORT` | No | `8080` | HTTP listen port. |
+| `CHAT_RATE_LIMIT_PER_MINUTE` | No | `30` | Max `POST /api/chat` requests per client IP per rolling 60s window. |
 
-Server guardrails: ~32 KiB request body, last 20 messages, `max_completion_tokens` capped at 512.
+**Inference docs:** [Chat Completions](https://docs.digitalocean.com/reference/api/reference/serverless-inference/), [model access keys](https://docs.digitalocean.com/products/inference/how-to/manage-model-access-keys/).
 
 ## Run locally
 
-Requires **Node.js 20+** (built-in `fetch`, zero npm dependencies).
-
 ```bash
+npm install
 npm start
 ```
 
 Open [http://localhost:8080](http://localhost:8080).
 
-Without `MODEL_ACCESS_KEY`, the UI loads but `/api/chat` returns a clear configuration error (HTTP 503).
-
-With a key:
+- Without `MODEL_ACCESS_KEY`: bracket UI works; chat shows **unconfigured**; `GET /api/inference-status` returns `"chatConfigured": false`.
+- With a key:
 
 ```bash
 export MODEL_ACCESS_KEY='your-model-access-key'
@@ -58,34 +48,27 @@ Health check:
 curl -sS -o /dev/null -w "%{http_code}\n" http://localhost:8080/healthz
 ```
 
-## Model access key
-
-1. Open [Model Access Keys](https://cloud.digitalocean.com/model-studio/manage-keys) in the control panel.
-2. Click **Create model access key**, name it, and scope it to your model (or **All models** for testing).
-3. Copy the secret once and store it as `MODEL_ACCESS_KEY` (App Platform secret or local env).
-
-See [How to Create and Manage Model Access Keys](https://docs.digitalocean.com/products/inference/how-to/manage-model-access-keys/).
-
-Ensure your team has [Inference prepayment / balance](https://docs.digitalocean.com/products/inference/how-to/manage-serverless-inference-prepayment/) funded; insufficient balance surfaces as a friendly upstream error in the UI (no secret leakage).
-
-## Deploy on App Platform
-
-The spec in [`.do/app.yaml`](.do/app.yaml) deploys from this public Git repository:
-
-- App name: `grokbot-sample-app`
-- Region: `nyc`
-- One `web` service at repo root (`source_dir` `/`)
-- Instance: `basic-xxs`, count `1`
-- `http_port` `8080`, health check `/healthz`
-- `MODEL_ACCESS_KEY` as a `SECRET` (replace the placeholder before deploy)
-
-Using `doctl` (after replacing the placeholder secret):
+## Docker
 
 ```bash
-doctl apps create --spec .do/app.yaml
+docker build -t grokbot-sample-app .
+docker run --rm -p 8080:8080 grokbot-sample-app
 ```
 
-Or paste the YAML in the control panel under **Create App → Upload spec**.
+## Deploy artifact (tar.gz, no clone)
+
+From the repo root (includes `package-lock.json`, `Dockerfile`, app source; excludes secrets and `node_modules`):
+
+```bash
+chmod +x scripts/package-deploy-artifact.sh
+./scripts/package-deploy-artifact.sh
+```
+
+The script prints the **absolute path** to `dist/grokbot-sample-app-deploy-<UTC-timestamp>.tar.gz`.
+
+## App Platform spec
+
+See [`.do/app.yaml`](.do/app.yaml). Replace branch name with your PR branch as needed. **Secrets:** add `MODEL_ACCESS_KEY` in the control panel (the spec uses a `SECRET` placeholder without a value).
 
 ## License
 

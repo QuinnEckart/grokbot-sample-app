@@ -2,19 +2,31 @@ name: grokbot-sample-app
 region: nyc
 services:
   - name: web
-    environment_slug: node-js
+    # Use dockerfile build for portable deploys; swap to node-js + run_command npm start if preferred.
+    dockerfile_path: Dockerfile
+    source_dir: /
     instance_size_slug: basic-xxs
     instance_count: 1
     http_port: 8080
-    source_dir: /
-    run_command: npm start
-    git:
+    github:
       repo_clone_url: https://github.com/QuinnEckart/grokbot-sample-app.git
       branch: main
+      deploy_on_push: true
     health_check:
       http_path: /healthz
     envs:
+      - key: INFERENCE_BASE_URL
+        value: https://inference.do-ai.run/v1
+        scope: RUN_TIME
+        type: GENERAL
+      - key: INFERENCE_MODEL
+        value: openai-gpt-oss-20b
+        scope: RUN_TIME
+        type: GENERAL
+      - key: CHAT_RATE_LIMIT_PER_MINUTE
+        value: "30"
+        scope: RUN_TIME
+        type: GENERAL
       - key: MODEL_ACCESS_KEY
-        value: REPLACE_WITH_YOUR_MODEL_ACCESS_KEY
         scope: RUN_TIME
         type: SECRET
